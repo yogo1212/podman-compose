@@ -10,6 +10,7 @@
 # TODO: podman pod logs --color -n -f pod_testlogs
 
 
+import signal
 import sys
 import os
 import getpass
@@ -2067,6 +2068,20 @@ def compose_up(compose, args):
         threads.append(thread)
         time.sleep(1)
 
+    def terminate_signal(sig, frame):
+        # stop
+        container_names = [cnt["name"] for cnt in compose.containers]
+        compose.podman.run([], "stop", ["-i", *container_names])
+
+        # don't do this twice
+        compose.containers = []
+
+    old_sigterm = signal.getsignal(signal.SIGTERM)
+    signal.signal(signal.SIGTERM, terminate_signal)
+
+    old_sigint = signal.getsignal(signal.SIGINT)
+    signal.signal(signal.SIGINT, terminate_signal)
+
     while threads:
         to_remove = []
         for thread in threads:
@@ -2081,6 +2096,13 @@ def compose_up(compose, args):
                     sys.exit(exit_code)
         for thread in to_remove:
             threads.remove(thread)
+
+    signal.signal(signal.SIGTERM, old_sigterm)
+    signal.signal(signal.SIGINT, old_sigint)
+
+    if args.bring_down_on_exit:
+        # TODO excluded?
+        # TODO share code with compose_down?
 
 
 def get_volume_names(compose, cnt):
@@ -2520,6 +2542,11 @@ def compose_up_parse(parser):
         type=str,
         default=None,
         help="Return the exit code of the selected service container. Implies --abort-on-container-exit.",
+    )
+    parser.add_argument(
+        "--bring-down-on-exit",
+        action="store_true",
+        help="Tear down generated resources on exit. Incompatible with -d.",
     )
 
 
